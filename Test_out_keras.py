@@ -4,7 +4,7 @@
 # ### Deep Convolutional Network Cascade for Facial Point Detection
 # with significant modifications for simplification
 
-# In[1]:
+# In[ ]:
 
 
 from keras import backend as K
@@ -16,10 +16,10 @@ from keras.models import Model
 import numpy as np
 
 
-# In[2]:
+# In[ ]:
 
 
-#%matplotlib inline
+get_ipython().magic(u'matplotlib inline')
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,10 +33,10 @@ from PIL import Image
 # 1 for EN1
 # 2 for NM1
 # 3 for all
-to_train = 1
+to_train = 0
 
 
-# In[4]:
+# In[ ]:
 
 
 def show_landmark(face, landmark):
@@ -50,7 +50,7 @@ def show_landmark(face, landmark):
     return face_copied
 
 
-# In[5]:
+# In[ ]:
 
 
 def break_to_units(lyr, units_y, units_x):
@@ -80,7 +80,7 @@ def abs_layer(lyr):
     return lyr
 
 
-# In[6]:
+# In[ ]:
 
 
 def get_C(lyr, kernel_len, number, p, q):
@@ -122,11 +122,11 @@ def get_FC(lyr, size):
     return lyr
 
 
-# In[9]:
+# In[ ]:
 
 
 def get_s0():
-    inp = Input((48, 48, 1))
+    inp = Input((96, 96, 1))
     lyr = get_CR(inp, 4, 20, 2, 2)
     lyr = get_MP(lyr, 2, 2, 2)
     lyr = get_CR(lyr, 3, 20, 2, 2)
@@ -141,7 +141,7 @@ def get_s0():
     return model
 
 def get_s1():
-    inp = Input((40, 48, 1))
+    inp = Input((80, 96, 1))
     lyr = get_CR(inp, 4, 20, 1, 1)
     lyr = get_MP(lyr, 2, 1, 1)
     lyr = get_CR(lyr, 3, 20, 2, 2)
@@ -160,7 +160,7 @@ get_s0()
 get_s1()
 
 
-# In[10]:
+# In[ ]:
 
 
 train_set_info = 'dataset/trainImageList.txt'
@@ -168,22 +168,37 @@ trainfile = open(train_set_info, 'r')
 x = []
 y = []
 
+CASC_PATH = 'haarcascade_frontalface_default.xml'
+faceCascade = cv2.CascadeClassifier(CASC_PATH)
+
 for line in trainfile:
-    info = line.rstrip().split(' ')
-    im = cv2.imread('dataset/' + info[0].replace('\\', '/'))
-    xy = np.array(info[1:5], dtype=np.int)
-    trimmed = im[xy[2]:xy[3], xy[0]:xy[1]]
-    trimmed = cv2.resize(trimmed, (48, 48))
-    trimmed = cv2.cvtColor(trimmed, cv2.COLOR_BGR2GRAY)
-    trimmed = np.reshape(trimmed, trimmed.shape + (1,))
-    data = np.array(info[5:], dtype=np.float32)
-    data = np.reshape(data, (5, 2))
-    for i in range(data.shape[0]):
-        data[i][0] = (data[i][0] - xy[0])/(xy[1] - xy[0])
-        data[i][1] = (data[i][1] - xy[2])/(xy[3] - xy[2])
-    data = np.reshape(data, (10,))
-    x.append(trimmed)
-    y.append(data)
+    try:
+        info = line.rstrip().split(' ')
+        im = cv2.imread('dataset/' + info[0].replace('\\', '/'))
+        xy = np.array(info[1:5], dtype=np.int)
+        faces = faceCascade.detectMultiScale(im)
+        #assert(len(faces) == 1)
+        x1, y1, w1, h1 = faces[0]
+        xy[2] = y1
+        xy[3] = y1 + h1
+        xy[0] = x1
+        xy[1] = x1 + w1
+        trimmed = im[xy[2]:xy[3], xy[0]:xy[1]]
+        trimmed = cv2.resize(trimmed, (96, 96))
+        trimmed = cv2.cvtColor(trimmed, cv2.COLOR_BGR2GRAY)
+        plt.imshow(trimmed, cmap='gray')
+        trimmed = np.reshape(trimmed, trimmed.shape + (1,))
+        data = np.array(info[5:], dtype=np.float32)
+        data = np.reshape(data, (5, 2))
+        for i in range(data.shape[0]):
+            data[i][0] = (data[i][0] - xy[0])/(xy[1] - xy[0])
+            data[i][1] = (data[i][1] - xy[2])/(xy[3] - xy[2])
+        data = np.reshape(data, (10,))
+        assert(np.min(data) >= 0 and np.max(data) <= 1)
+        x.append(trimmed)
+        y.append(data)
+    except Exception:
+        pass
 
 
 
@@ -191,12 +206,12 @@ for line in trainfile:
 
 
 if to_train == 0 or to_train == 3:
-    x = np.array(x, dtype=np.float32)
-    y = np.array(y, dtype=np.float32)
+    xx = np.array(x, dtype=np.float32)
+    yy = np.array(y, dtype=np.float32)
     model = get_s0()
     model.summary()
     model.compile('sgd', 'mse')
-    model.fit(x, y, epochs=10)
+    model.fit(xx, yy, epochs=20)
     model.save_weights('saved_f1.h5')
 
 
@@ -204,15 +219,17 @@ if to_train == 0 or to_train == 3:
 
 
 if to_train == 1 or to_train == 3:
+    xx = []
+    yy = []
     for i in range(len(x)):
-        x[i] = x[i][:40, :]
-        y[i] = y[i][:6]
-    x = np.array(x, dtype=np.float32)
-    y = np.array(y, dtype=np.float32)
+        xx.append(x[i][:80, :])
+        yy.append(y[i][:6])
+    xx = np.array(xx, dtype=np.float32)
+    yy = np.array(yy, dtype=np.float32)
     model = get_s1()
     model.summary()
     model.compile('sgd', 'mse')
-    model.fit(x, y, epochs=10)
+    model.fit(xx, yy, epochs=10)
     model.save_weights('saved_en1.h5')
 
 
@@ -220,14 +237,16 @@ if to_train == 1 or to_train == 3:
 
 
 if to_train == 2 or to_train == 3:
+    xx = []
+    yy = []
     for i in range(len(x)):
-        x[i] = x[i][-40:, :]
-        y[i] = y[i][-6:]
-    x = np.array(x, dtype=np.float32)
-    y = np.array(y, dtype=np.float32)
+        xx.append(x[i][-80:, :])
+        yy.append(y[i][-6:])
+    xx = np.array(xx, dtype=np.float32)
+    yy = np.array(yy, dtype=np.float32)
     model = get_s1()
     model.summary()
     model.compile('sgd', 'mse')
-    model.fit(x, y, epochs=10)
+    model.fit(xx, yy, epochs=10)
     model.save_weights('saved_nm1.h5')
 
